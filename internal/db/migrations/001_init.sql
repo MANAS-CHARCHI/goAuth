@@ -47,6 +47,6 @@ CREATE TABLE IF NOT EXISTS activation_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_activation_tokens_user_id ON activation_tokens (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_activation_tokens_token ON activation_tokens (token);
+CREATE INDEX IF NOT EXISTS idx_activation_tokens_token ON activationz_tokens (token);
 
 CREATE INDEX IF NOT EXISTS idx_activation_tokens_expires_at ON activation_tokens (expires_at);
