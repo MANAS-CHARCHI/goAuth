@@ -11,17 +11,18 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
-func main(){
-	
+
+func main() {
+
 	if err := godotenv.Load(); err != nil {
-        log.Println("No .env file found, relying on system environment")
-    }
-	
+		log.Println("No .env file found, relying on system environment")
+	}
+
 	if len(os.Args) < 2 {
 		log.Fatal("Provide a Migration direction: up or down")
 	}
 
-	direction :=os.Args[1]
+	direction := os.Args[1]
 
 	db, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -44,17 +45,17 @@ func main(){
 		log.Fatal(err)
 	}
 
-	switch direction{
-		case "up":
-			if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-				log.Fatal(err)
-			}
-		case "down":
-			if err := m.Down(); err != nil && err != migrate.ErrNoChange {
-				log.Fatal(err)
-			}
-		default:
-			log.Fatal("Invalid migration direction")
+	switch direction {
+	case "up":
+		if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+			log.Fatal(err)
+		}
+	case "down":
+		if err := m.Down(); err != nil && err != migrate.ErrNoChange {
+			log.Fatal(err)
+		}
+	default:
+		log.Fatal("Invalid migration direction")
 	}
 
 }

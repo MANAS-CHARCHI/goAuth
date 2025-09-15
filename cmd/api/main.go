@@ -42,6 +42,7 @@ func main() {
 	if port == "" {
 		port = "5003"
 	}
+
 	app := &application{
 		port:      port,
 		jwtsecret: os.Getenv("JWT_SECRET"),
