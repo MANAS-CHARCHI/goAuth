@@ -24,7 +24,7 @@ func (app *application) register(c *gin.Context) {
 	}
 	// Get user agent
 	userAgent := c.GetHeader("User-Agent")
-
+	ipAddress := c.ClientIP()
 	// hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -35,7 +35,7 @@ func (app *application) register(c *gin.Context) {
 	}
 	req.Password = string(hashedPassword)
 	// create the user
-	user, err := app.models.Users.CreateUser(&req, userAgent)
+	user, err := app.models.Users.CreateUser(&req, ipAddress, userAgent)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Could not create user.",
@@ -66,5 +66,25 @@ func (app *application) login(c *gin.Context) {
 		"user":          user,
 		"access-token":  accessToken,
 		"refresh-token": refreshToken,
+	})
+}
+
+func (app *application) getuser(c *gin.Context) {
+	bearerToken := c.GetHeader("Authorization")
+	if bearerToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "No Authorization header provided",
+		})
+		return
+	}
+	user, err := app.models.Users.GetUser(bearerToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user": user,
 	})
 }

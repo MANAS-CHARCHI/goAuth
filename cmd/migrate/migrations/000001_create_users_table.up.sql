@@ -15,9 +15,11 @@ INSERT INTO roles (name)
 VALUES ('member'), ('admin'), ('owner')
 ON CONFLICT (name) DO NOTHING;
 
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- User Table
 CREATE TABLE IF NOT EXISTS users(
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT  gen_random_uuid(),
     username VARCHAR(20) NOT NULL UNIQUE,
     email VARCHAR(100) NOT NULL UNIQUE,
     password VARCHAR(100) NOT NULL,
@@ -32,7 +34,7 @@ CREATE TABLE IF NOT EXISTS users(
     lastLoginIP INET,
     userAgent TEXT,
     failedLoginUserAgent TEXT,
-    userUpdatedBy INT,
+    userUpdatedBy UUID,
     firstName VARCHAR(100),
     lastName VARCHAR(100),
     avatar VARCHAR(255),
@@ -49,7 +51,7 @@ CREATE TABLE IF NOT EXISTS users(
     lastModified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     isDeleted BOOLEAN NOT NULL DEFAULT FALSE,
     deletedAt TIMESTAMP,
-    deletedBy INT
+    deletedBy UUID
 );
 
 -- Add self-referencing constraints separately
@@ -65,9 +67,9 @@ CREATE INDEX IF NOT EXISTS idx_users_active ON users(id) WHERE isDeleted = FALSE
 
 CREATE TABLE IF NOT EXISTS sessions (
     id SERIAL PRIMARY KEY,
-    userId INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     sessionToken VARCHAR(255) NOT NULL UNIQUE,
-    userAgent TEXT,
+    userAgent TEXT UNIQUE,
     ipAddress INET,
     createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     lastActiveAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
