@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -16,13 +17,13 @@ type UserModel struct {
 	DB *sql.DB
 }
 
-var jwtSecret = []byte("super-secret-key-change-this")
+var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func GenerateAccessToken(userID uuid.UUID) (string, error) {
 	claims := jwt.MapClaims{
 		"userId": userID,
 		"type":   "access",
-		"exp":    time.Now().Add(24 * time.Hour).Unix(),
+		"exp":    time.Now().Add(15 * time.Minute).Unix(),
 		"iat":    time.Now().Unix(),
 	}
 
@@ -105,9 +106,23 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	if err != nil {
 		return nil, "", "", err
 	}
+	// if exists{
+	// 	invalidatePreviousAccessToken:=` UPDATE INTO token_blacklist (expires_at) VALUES($1) WHERE `
+	// }
 	if !exists {
 		now := time.Now().UTC()
 		expiresAt := now.Add(7 * 24 * time.Hour)
+		accessExpiresAt := now.Add(15 * time.Minute)
+		updateTokenBlacklist := `INSERT INTO token_blacklist (token, user_id, expires_at, created_at) VALUES ($1, $2, $3, $4);`
+		_, err = m.DB.Exec(updateTokenBlacklist, accessToken, resp.Id, accessExpiresAt, now)
+		if err != nil {
+			return nil, "", "", err
+		}
+		updateRefreshToken := `INSERT INTO refresh_tokens (token, user_id,  expires_at, created_at) VALUES ($1, $2, $3, $4);`
+		_, err = m.DB.Exec(updateRefreshToken, refreshToken, resp.Id, expiresAt, now)
+		if err != nil {
+			return nil, "", "", err
+		}
 		updateSessionQuery := `INSERT INTO sessions (userId, sessionToken, userAgent, ipAddress, createdAt, lastActiveAt, isActive, expiresAt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`
 		_, err = m.DB.Exec(updateSessionQuery, resp.Id, refreshToken, userAgent, ipAddress, now, now, true, expiresAt)
 		if err != nil {

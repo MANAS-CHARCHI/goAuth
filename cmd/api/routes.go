@@ -1,6 +1,7 @@
 package main
 
 import (
+	"goAuth/cmd/middleware"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,8 +16,14 @@ func (app *application) routes() http.Handler {
 		v1.POST("/register", app.register)
 		v1.POST("/login", app.login)
 
-		// v1.POST("/logout", app.logout)
-		v1.GET("/user", app.getuser)
+		auth := v1.Group("/")
+		auth.Use(middleware.AuthMiddleware(app.models.DB))
+		{
+			auth.GET("/user", app.getuser)
+			auth.POST("/logout", app.logout)
+
+		}
+
 		// v1.POST("/forgotPassword", app.forgotPassword)
 		// v1.POST("/resetPassword", app.resetPassword)
 	}

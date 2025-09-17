@@ -88,3 +88,14 @@ func (app *application) getuser(c *gin.Context) {
 		"user": user,
 	})
 }
+
+func (app *application) logout(c *gin.Context) {
+	bearerToken := c.GetHeader("Authorization")
+	if bearerToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "No Authorization header provided",
+		})
+		return
+	}
+
+}
