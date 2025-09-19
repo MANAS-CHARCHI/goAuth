@@ -23,7 +23,7 @@ func GenerateAccessToken(userID uuid.UUID) (string, error) {
 	claims := jwt.MapClaims{
 		"userId": userID,
 		"type":   "access",
-		"exp":    time.Now().Add(15 * time.Minute).Unix(),
+		"exp":    time.Now().Add(1 * time.Minute).Unix(),
 		"iat":    time.Now().Unix(),
 	}
 
