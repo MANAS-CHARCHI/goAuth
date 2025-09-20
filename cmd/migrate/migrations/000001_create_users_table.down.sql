@@ -6,7 +6,6 @@ ALTER TABLE IF EXISTS users
 DROP CONSTRAINT IF EXISTS fk_users_deleted_by;
 
 -- Drop dependent tables in correct order
-DROP TABLE IF EXISTS sessions;
 
 DROP TABLE IF EXISTS users;
 
@@ -24,6 +23,4 @@ DROP INDEX IF EXISTS idx_users_roleId;
 
 DROP INDEX IF EXISTS idx_users_active;
 
-DROP INDEX IF EXISTS idx_sessions_userId;
 
-DROP INDEX IF EXISTS idx_sessions_active;

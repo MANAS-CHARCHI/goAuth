@@ -1,7 +1,9 @@
 package database
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -19,27 +21,66 @@ type UserModel struct {
 
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
-func GenerateAccessToken(userID uuid.UUID) (string, error) {
-	claims := jwt.MapClaims{
-		"userId": userID,
-		"type":   "access",
-		"exp":    time.Now().Add(1 * time.Minute).Unix(),
-		"iat":    time.Now().Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+type TokenDetails struct {
+	AccessToken  string
+	RefreshToken string
+	AccessJTI    string
+	AccessExp    int64
+	RefreshExp   int64
 }
-func GenerateRefreshToken(userID uuid.UUID) (string, error) {
-	claims := jwt.MapClaims{
-		"userId": userID,
-		"type":   "refresh",
-		"exp":    time.Now().Add(7 * 24 * time.Hour).Unix(), // 7 days
-		"iat":    time.Now().Unix(),
+
+// hashUserAgent hashes the User-Agent string
+func hashUserAgent(userAgent string) string {
+	h := sha256.New()
+	h.Write([]byte(userAgent))
+	return hex.EncodeToString(h.Sum(nil))
+}
+func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
+	td := &TokenDetails{}
+
+	// --- ACCESS TOKEN ---
+	accessJTI := uuid.NewString()
+	accessExp := time.Now().Add(15 * time.Minute).Unix()
+
+	accessClaims := jwt.MapClaims{
+		"user_id": userID,
+		"type":    "access",
+		"jti":     accessJTI,
+		"exp":     accessExp,
+		"iat":     time.Now().Unix(),
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	at, err := accessToken.SignedString(jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	// --- REFRESH TOKEN ---
+	refreshExp := time.Now().Add(7 * 24 * time.Hour).Unix()
+	deviceKey := hashUserAgent(userAgent)
+
+	refreshClaims := jwt.MapClaims{
+		"user_id":    userID,
+		"type":       "refresh",
+		"device_key": deviceKey,
+		"exp":        refreshExp,
+		"iat":        time.Now().Unix(),
+	}
+
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	rt, err := refreshToken.SignedString(jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	td.AccessToken = at
+	td.RefreshToken = rt
+	td.AccessJTI = accessJTI
+	td.AccessExp = accessExp
+	td.RefreshExp = refreshExp
+
+	return td, nil
 }
 
 func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgent string) (*UserResponse, error) {
@@ -48,7 +89,7 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 	LastLogin := createdAt
 	LastModified := createdAt
 	RoleId := 1
-	query := `INSERT INTO users (username, email, password, firstname, lastname, createdAt, roleId, lastLogin, lastModified, userAgent, signupip)
+	query := `INSERT INTO users (username, email, password, firstname, lastname, createdAt, roleId, lastLogin, lastModified, userAgentAtCreation, signupip)
 		VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, username, email, firstname, lastname, avatar, website, createdAt;`
 
@@ -68,7 +109,8 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 }
 
 func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent string) (*UserResponse, string, string, error) {
-	lastLogin := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC()
+	lastLogin := now
 	query := `SELECT id, username, email, firstname, lastname, avatar, website, createdAt, password FROM users WHERE email=$1;`
 
 	row := m.DB.QueryRow(query, user.Email)
@@ -80,51 +122,58 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	err := row.Scan(&resp.Id, &resp.Username, &resp.Email, &resp.FirstName, &resp.LastName, &avatar, &website, &resp.CreatedAt, &hashedPassword)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "", "", fmt.Errorf("invalid email or password")
+			return nil, "", "", fmt.Errorf("user with this email does not exist")
 		}
 		return nil, "", "", err
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(user.Password))
 	if err != nil {
-		return nil, "", "", fmt.Errorf("invalid email or password")
+		return nil, "", "", fmt.Errorf("wrong email or password")
 	}
 	resp.Avatar = avatar.String
 	resp.Website = website.String
-	updateQuery := `UPDATE users SET lastlogin=$1, lastloginip=$2  WHERE id=$3;`
-	_, err = m.DB.Exec(updateQuery, lastLogin, ipAddress, resp.Id)
-	accessToken, err := GenerateAccessToken(resp.Id)
+	updateQuery := `UPDATE users SET lastlogin=$1 WHERE id=$2;`
+	_, err = m.DB.Exec(updateQuery, lastLogin, resp.Id)
+
 	if err != nil {
 		return nil, "", "", err
 	}
-	refreshToken, err := GenerateRefreshToken(resp.Id)
+	tokens, err := GenerateTokens(resp.Id, userAgent)
 	if err != nil {
 		return nil, "", "", err
 	}
-	verifyDuplicateSession := `SELECT EXISTS (SELECT 1 FROM sessions WHERE userid=$1 AND useragent=$2 AND ipaddress=$3 AND isactive=true);`
+	accessToken := tokens.AccessToken
+	refreshToken := tokens.RefreshToken
+
+	expiresAt := time.Unix(tokens.RefreshExp, 0).UTC()
+	fmt.Println(expiresAt)
+	// STORE IN TOKEN BLACKLIST
+	storeRefreshToken := `INSERT INTO refresh_tokens (hash_token, user_id, expires_at, issued_at) VALUES ($1, $2, $3, $4);`
+	_, err = m.DB.Exec(storeRefreshToken, refreshToken, resp.Id, expiresAt, now)
+
+	if err != nil {
+		return nil, "", "", err
+	}
+	// CHECK SESSION EXISTS or NOT
+	verifyDuplicateSession := `SELECT EXISTS (SELECT 1 FROM sessions WHERE user_id=$1 AND useragent=$2 AND ipaddress=$3 AND isactive=true);`
 	var exists bool
 	err = m.DB.QueryRow(verifyDuplicateSession, resp.Id, userAgent, ipAddress).Scan(&exists)
 	if err != nil {
 		return nil, "", "", err
 	}
-	// if exists{
-	// 	invalidatePreviousAccessToken:=` UPDATE INTO token_blacklist (expires_at) VALUES($1) WHERE `
-	// }
+	if exists{
+		// UPDATE SESSION
+		invalidatePreviousAccessToken:=`UPDATE sessions SET updated_at = $1, last_active_at = $2 WHERE user_id = $3 AND useragent = $4 AND ipaddress = $5 AND isactive = true;`
+		_, err = m.DB.Exec(invalidatePreviousAccessToken, now, now, resp.Id, userAgent, ipAddress)
+		if err != nil {
+			return nil, "", "", err
+		}
+	}
 	if !exists {
-		now := time.Now().UTC()
-		expiresAt := now.Add(7 * 24 * time.Hour)
-		accessExpiresAt := now.Add(15 * time.Minute)
-		updateTokenBlacklist := `INSERT INTO token_blacklist (token, user_id, expires_at, created_at) VALUES ($1, $2, $3, $4);`
-		_, err = m.DB.Exec(updateTokenBlacklist, accessToken, resp.Id, accessExpiresAt, now)
-		if err != nil {
-			return nil, "", "", err
-		}
-		updateRefreshToken := `INSERT INTO refresh_tokens (token, user_id,  expires_at, created_at) VALUES ($1, $2, $3, $4);`
-		_, err = m.DB.Exec(updateRefreshToken, refreshToken, resp.Id, expiresAt, now)
-		if err != nil {
-			return nil, "", "", err
-		}
-		updateSessionQuery := `INSERT INTO sessions (userId, sessionToken, userAgent, ipAddress, createdAt, lastActiveAt, isActive, expiresAt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`
-		_, err = m.DB.Exec(updateSessionQuery, resp.Id, refreshToken, userAgent, ipAddress, now, now, true, expiresAt)
+		// --- CREATE SESSION ---
+
+		createSession := `INSERT INTO sessions (user_id, useragent, ipaddress) VALUES ($1, $2, $3);`
+		_, err = m.DB.Exec(createSession, resp.Id, userAgent, ipAddress)
 		if err != nil {
 			return nil, "", "", err
 		}
@@ -145,18 +194,18 @@ func GetUserIDFromBearerToken(bearerToken string, secret string) (string, error)
 		return []byte(secret), nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("Failed to parse token.")
+		return "", fmt.Errorf("Failed to parse token")
 	}
 	if !token.Valid {
-		return "", fmt.Errorf("Invalid token.")
+		return "", fmt.Errorf("Invalid token")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", errors.New("Failed to parse claims.")
+		return "", errors.New("Failed to parse claims")
 	}
 	userID, ok := claims["userId"].(string)
 	if !ok {
-		return "", errors.New("userId not found in token claims.")
+		return "", errors.New("userId not found in token claims")
 	}
 	return userID, nil
 }

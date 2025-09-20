@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"goAuth/internal/database"
 	"log"
 	"os"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
 type application struct {
@@ -17,6 +20,23 @@ type application struct {
 }
 
 func main() {
+
+	client := redis.NewClient(&redis.Options{
+        Addr:	  "localhost:6379",
+        Password: "", // No password set
+        DB:		  0,  // Use default DB
+        Protocol: 2,  // Connection protocol
+    })
+	// Always use a context (required by go-redis v9)
+	ctx := context.Background()
+
+	// Test the connection
+	if err := client.Ping(ctx).Err(); err != nil {
+		log.Fatalf("Could not connect to Redis: %v", err)
+	}
+
+	fmt.Println("----------Started Redis on localhost:6379----------")
+
 
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file")
@@ -36,7 +56,7 @@ func main() {
 	if err := db.Ping(); err != nil {
 		log.Fatal("Failed to ping DB:", err)
 	}
-	log.Println("Connected to DataBase.")
+	fmt.Println("----------Started Postgres on localhost:5432----------")
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -48,9 +68,9 @@ func main() {
 		jwtsecret: os.Getenv("JWT_SECRET"),
 		models:    database.NewModels(db),
 	}
+	fmt.Printf("----------Starting server on http://localhost:%s----------\n", port)
 	if err := app.serve(); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Starting server on http://localhost:%s", port)
 
 }
