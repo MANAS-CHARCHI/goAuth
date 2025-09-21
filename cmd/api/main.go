@@ -17,12 +17,16 @@ type application struct {
 	port      string
 	jwtsecret string
 	models    database.Models
+	redis     *redis.Client
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading .env file")
+	}
 
 	client := redis.NewClient(&redis.Options{
-        Addr:	  "localhost:6379",
+        Addr:	  os.Getenv("REDIS_SERVER"),
         Password: "", // No password set
         DB:		  0,  // Use default DB
         Protocol: 2,  // Connection protocol
@@ -35,12 +39,7 @@ func main() {
 		log.Fatalf("Could not connect to Redis: %v", err)
 	}
 
-	fmt.Println("----------Started Redis on localhost:6379----------")
-
-
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
-	}
+	fmt.Printf("----------Started Redis on %s----------\n", os.Getenv("REDIS_SERVER"))
 
 	dbUrl := os.Getenv("DATABASE_URL")
 	if dbUrl == "" {
@@ -66,9 +65,10 @@ func main() {
 	app := &application{
 		port:      port,
 		jwtsecret: os.Getenv("JWT_SECRET"),
-		models:    database.NewModels(db),
+		models:    database.NewModels(db, client),
+		redis:     client,
 	}
-	fmt.Printf("----------Starting server on http://localhost:%s----------\n", port)
+	fmt.Printf("----------Started Server on http://localhost:%s----------\n", port)
 	if err := app.serve(); err != nil {
 		log.Fatal(err)
 	}

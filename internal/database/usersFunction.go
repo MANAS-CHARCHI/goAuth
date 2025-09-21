@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -12,11 +13,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type UserModel struct {
 	DB *sql.DB
+	Redis *redis.Client
 }
 
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
@@ -43,7 +46,7 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 	accessExp := time.Now().Add(15 * time.Minute).Unix()
 
 	accessClaims := jwt.MapClaims{
-		"user_id": userID,
+		"userId": userID,
 		"type":    "access",
 		"jti":     accessJTI,
 		"exp":     accessExp,
@@ -61,7 +64,7 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 	deviceKey := hashUserAgent(userAgent)
 
 	refreshClaims := jwt.MapClaims{
-		"user_id":    userID,
+		"userId":    userID,
 		"type":       "refresh",
 		"device_key": deviceKey,
 		"exp":        refreshExp,
@@ -109,6 +112,7 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 }
 
 func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent string) (*UserResponse, string, string, error) {
+	ctx := context.Background()
 	now := time.Now().UTC()
 	lastLogin := now
 	query := `SELECT id, username, email, firstname, lastname, avatar, website, createdAt, password FROM users WHERE email=$1;`
@@ -146,7 +150,7 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	refreshToken := tokens.RefreshToken
 
 	expiresAt := time.Unix(tokens.RefreshExp, 0).UTC()
-	fmt.Println(expiresAt)
+	
 	// STORE IN TOKEN BLACKLIST
 	storeRefreshToken := `INSERT INTO refresh_tokens (hash_token, user_id, expires_at, issued_at) VALUES ($1, $2, $3, $4);`
 	_, err = m.DB.Exec(storeRefreshToken, refreshToken, resp.Id, expiresAt, now)
@@ -154,6 +158,29 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	if err != nil {
 		return nil, "", "", err
 	}
+	// EXTRACT JTI AND STORE
+	token, _, err := new(jwt.Parser).ParseUnverified(accessToken, jwt.MapClaims{})
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to parse access token: %w", err)
+	}
+	var jti string
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		if val, ok := claims["jti"].(string); ok {
+			jti = val
+		}
+	}
+	if jti == "" {
+		return nil, "", "", fmt.Errorf("jti not found in access token")
+	}
+	
+	ttl := 15 * time.Minute
+	key := "user-jtis:" + jti
+	value := "valid"
+	err = m.Redis.Set(ctx, key, value, ttl).Err()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to store JTI in Redis: %w", err)
+	}
+
 	// CHECK SESSION EXISTS or NOT
 	verifyDuplicateSession := `SELECT EXISTS (SELECT 1 FROM sessions WHERE user_id=$1 AND useragent=$2 AND ipaddress=$3 AND isactive=true);`
 	var exists bool
@@ -171,7 +198,6 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	}
 	if !exists {
 		// --- CREATE SESSION ---
-
 		createSession := `INSERT INTO sessions (user_id, useragent, ipaddress) VALUES ($1, $2, $3);`
 		_, err = m.DB.Exec(createSession, resp.Id, userAgent, ipAddress)
 		if err != nil {
@@ -194,18 +220,22 @@ func GetUserIDFromBearerToken(bearerToken string, secret string) (string, error)
 		return []byte(secret), nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("Failed to parse token")
+		return "", fmt.Errorf("failed to parse token")
 	}
 	if !token.Valid {
-		return "", fmt.Errorf("Invalid token")
+		return "", fmt.Errorf("invalid token")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", errors.New("Failed to parse claims")
+		return "", errors.New("failed to parse claims")
 	}
 	userID, ok := claims["userId"].(string)
 	if !ok {
 		return "", errors.New("userId not found in token claims")
+	}
+	tokenType:= claims["type"].(string)
+	if tokenType != "access" {
+		return "", errors.New("invalid token type")
 	}
 	return userID, nil
 }
@@ -253,4 +283,24 @@ func (m *UserModel) GetUser(accessToken string) (*UserInfo, error) {
 	resp.UserActivatedAt = useractivatedat.String
 
 	return &resp, nil
+}
+
+
+func (m *UserModel) Logout(accessToken string, refreshToken string, userAgent string)(*UserInfo, error){
+
+	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
+	if err != nil {
+		return nil, err
+	}
+	removeRefreshToken := `UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND hash_token = $2;`
+	_, err = m.DB.Exec(removeRefreshToken, userId, refreshToken)
+	if err != nil {
+		return nil, err
+	}
+	query := `UPDATE sessions SET isactive = false WHERE user_id = $1 AND useragent = $2;`
+	_, err = m.DB.Exec(query, userId, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
 }

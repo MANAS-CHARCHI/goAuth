@@ -10,17 +10,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// CHECK valid access token, is not expired, is not revoked from redis
+
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func AuthMiddleware(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		bearerToken := c.GetHeader("Authorization")
-		if bearerToken == "" {
+		accessToken := c.GetHeader("Authorization")
+		if accessToken == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
 			return
 		}
 
-		tokenString := strings.TrimPrefix(bearerToken, "Bearer ")
+		tokenString := strings.TrimPrefix(accessToken, "Bearer ")
 
 		var exists bool
 		err := db.QueryRow(

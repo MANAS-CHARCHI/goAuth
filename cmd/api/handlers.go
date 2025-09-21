@@ -70,14 +70,14 @@ func (app *application) login(c *gin.Context) {
 }
 
 func (app *application) getuser(c *gin.Context) {
-	bearerToken := c.GetHeader("Authorization")
-	if bearerToken == "" {
+	accessToken := c.GetHeader("Authorization")
+	if accessToken == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "No Authorization header provided",
 		})
 		return
 	}
-	user, err := app.models.Users.GetUser(bearerToken)
+	user, err := app.models.Users.GetUser(accessToken)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": err.Error(),
@@ -88,14 +88,34 @@ func (app *application) getuser(c *gin.Context) {
 		"user": user,
 	})
 }
-
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh" binding:"required"`
+}
 func (app *application) logout(c *gin.Context) {
-	bearerToken := c.GetHeader("Authorization")
-	if bearerToken == "" {
+	accessToken := c.GetHeader("Authorization")
+	if accessToken == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "No Authorization header provided",
 		})
 		return
 	}
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing or invalid refresh token",
+		})
+		return
+	}
+	refreshToken := req.RefreshToken
 
+	user, err := app.models.Users.Logout(accessToken, refreshToken, c.GetHeader("User-Agent"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user": user,
+	})
 }

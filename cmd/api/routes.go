@@ -14,6 +14,8 @@ func (app *application) routes() http.Handler {
 		v1.GET("/", app.ping)
 		v1.POST("/register", app.register)
 		v1.POST("/login", app.login)
+		v1.POST("/logout", app.logout)
+		v1.GET("/user", app.getuser)
 
 		// auth := v1.Group("/")
 		// auth.Use(middleware.AuthMiddleware(app.models.DB))
