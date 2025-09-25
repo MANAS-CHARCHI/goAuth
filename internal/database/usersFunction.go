@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -86,17 +87,47 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 	return td, nil
 }
 
+func sendUserOTP(m *UserModel, userID uuid.UUID, email string) (string, error) {
+	otp := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	checkUserWithOtpExists := `SELECT EXISTS (SELECT 1 FROM user_otps WHERE user_id=$1);`
+	var exists bool
+	err := m.DB.QueryRow(checkUserWithOtpExists, userID).Scan(&exists)
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		updateUserOTP := `UPDATE user_otps SET otp=$1, expires_at=$2, updated_at=$3 WHERE user_id=$4;`
+		expiresAt := time.Now().Add(10 * time.Minute).UTC()
+		_, err := m.DB.Exec(updateUserOTP, otp, expiresAt, time.Now().UTC(), userID)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		otpInsertQuery := `INSERT INTO user_otps (user_id, otp, expires_at, created_at) VALUES ($1, $2, $3, $4);`
+		expiresAt := time.Now().Add(10 * time.Minute).UTC()
+		_, err := m.DB.Exec(otpInsertQuery, userID, otp, expiresAt, time.Now().UTC())
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Send OTP to user's email
+	fmt.Printf("OTP for user %s: %s\n", email, otp)
+
+	return otp, nil
+}
+
 func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgent string) (*UserResponse, error) {
 
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 	LastLogin := createdAt
 	LastModified := createdAt
 	RoleId := 1
-	query := `INSERT INTO users (username, email, password, firstname, lastname, createdAt, roleId, lastLogin, lastModified, userAgentAtCreation, signupip)
-		VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	query := `INSERT INTO users (username, email, password, firstname, lastname, createdAt, roleId, lastLogin, lastModified, userAgentAtCreation, signupip, useractivate)
+		VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, username, email, firstname, lastname, avatar, website, createdAt;`
 
-	row := m.DB.QueryRow(query, user.Username, user.Email, user.Password, user.FirstName, user.LastName, createdAt, RoleId, LastLogin, LastModified, userAgent, ipAddress)
+	row := m.DB.QueryRow(query, user.Username, user.Email, user.Password, user.FirstName, user.LastName, createdAt, RoleId, LastLogin, LastModified, userAgent, ipAddress, false)
 	var resp UserResponse
 	var avatar sql.NullString
 	var website sql.NullString
@@ -106,15 +137,46 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 	}
 	resp.Avatar = avatar.String
 	resp.Website = website.String
-
+	go func(userID uuid.UUID, email string) {
+		_, err := sendUserOTP(m, userID, email)
+		if err != nil {
+			log.Printf("sendUserOTP failed: %v", err)
+		}
+	}(resp.Id, resp.Email)
 	return &resp, nil
+}
+
+func (m *UserModel) ActivateUser(userID uuid.UUID, otp string) error {
+	verifyOTPQuery := `SELECT expires_at FROM user_otps WHERE user_id=$1 AND otp=$2;`
+	var expiresAt time.Time
+	err := m.DB.QueryRow(verifyOTPQuery, userID, otp).Scan(&expiresAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("invalid OTP")
+		}
+		return err
+	}
+	if time.Now().After(expiresAt) {
+		return fmt.Errorf("OTP has expired")
+	}
+	query := `UPDATE users SET useractivate = true, useractivatedat = $1 WHERE id = $2;`
+	_, err = m.DB.Exec(query, time.Now().UTC().Format(time.RFC3339), userID)
+	if err != nil {
+		return err
+	}
+	deleteOTPQuery := `DELETE FROM user_otps WHERE user_id=$1;`
+	_, err = m.DB.Exec(deleteOTPQuery, userID)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent string) (*UserResponse, string, string, error) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	lastLogin := now
-	query := `SELECT id, username, email, firstname, lastname, avatar, website, createdAt, password FROM users WHERE email=$1;`
+	query := `SELECT id, username, email, firstname, lastname, avatar, website, createdAt, password, useractivate FROM users WHERE email=$1;`
 
 	row := m.DB.QueryRow(query, user.Email)
 
@@ -122,13 +184,17 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	var avatar sql.NullString
 	var website sql.NullString
 	var hashedPassword string
-	err := row.Scan(&resp.Id, &resp.Username, &resp.Email, &resp.FirstName, &resp.LastName, &avatar, &website, &resp.CreatedAt, &hashedPassword)
+	err := row.Scan(&resp.Id, &resp.Username, &resp.Email, &resp.FirstName, &resp.LastName, &avatar, &website, &resp.CreatedAt, &hashedPassword, &resp.UserActivated)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", "", fmt.Errorf("user with this email does not exist")
 		}
 		return nil, "", "", err
 	}
+	if !resp.UserActivated {
+		return nil, "", "", fmt.Errorf("user is not activated")
+	}
+
 	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(user.Password))
 	if err != nil {
 		return nil, "", "", fmt.Errorf("wrong email or password")
@@ -186,7 +252,6 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 			return nil, "", "", err
 		}
 	}
-
 	if !exists {
 		// --- CREATE SESSION ---
 		createSession := `INSERT INTO sessions (user_id, useragent, ipaddress) VALUES ($1, $2, $3);`

@@ -18,14 +18,15 @@ type LoginRequest struct {
 }
 
 type UserResponse struct {
-	Id        uuid.UUID `json:"id"`
-	Username  string    `json:"username"`
-	Email     string    `json:"email"`
-	FirstName string    `json:"firstName "`
-	LastName  string    `json:"lastName "`
-	Avatar    string    `json:"avatar "`
-	Website   string    `json:"website "`
-	CreatedAt string    `json:"createdAt"`
+	Id            uuid.UUID `json:"id"`
+	Username      string    `json:"username"`
+	Email         string    `json:"email"`
+	FirstName     string    `json:"firstName "`
+	LastName      string    `json:"lastName "`
+	Avatar        string    `json:"avatar "`
+	Website       string    `json:"website "`
+	CreatedAt     string    `json:"createdAt"`
+	UserActivated bool      `json:"userActivated"`
 }
 
 type UserInfo struct {
