@@ -18,7 +18,7 @@ import (
 )
 
 type UserModel struct {
-	DB *sql.DB
+	DB    *sql.DB
 	Redis *redis.Client
 }
 
@@ -47,10 +47,10 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 
 	accessClaims := jwt.MapClaims{
 		"userId": userID,
-		"type":    "access",
-		"jti":     accessJTI,
-		"exp":     accessExp,
-		"iat":     time.Now().Unix(),
+		"type":   "access",
+		"jti":    accessJTI,
+		"exp":    accessExp,
+		"iat":    time.Now().Unix(),
 	}
 
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
@@ -64,7 +64,7 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 	deviceKey := hashUserAgent(userAgent)
 
 	refreshClaims := jwt.MapClaims{
-		"userId":    userID,
+		"userId":     userID,
 		"type":       "refresh",
 		"device_key": deviceKey,
 		"exp":        refreshExp,
@@ -102,7 +102,6 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 	var website sql.NullString
 	err := row.Scan(&resp.Id, &resp.Username, &resp.Email, &resp.FirstName, &resp.LastName, &avatar, &website, &resp.CreatedAt)
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	resp.Avatar = avatar.String
@@ -150,7 +149,7 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	refreshToken := tokens.RefreshToken
 
 	expiresAt := time.Unix(tokens.RefreshExp, 0).UTC()
-	
+
 	// STORE IN TOKEN BLACKLIST
 	storeRefreshToken := `INSERT INTO refresh_tokens (hash_token, user_id, expires_at, issued_at) VALUES ($1, $2, $3, $4);`
 	_, err = m.DB.Exec(storeRefreshToken, refreshToken, resp.Id, expiresAt, now)
@@ -159,20 +158,11 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 		return nil, "", "", err
 	}
 	// EXTRACT JTI AND STORE
-	token, _, err := new(jwt.Parser).ParseUnverified(accessToken, jwt.MapClaims{})
+	jti, err := GetJtiFromToken(accessToken)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to parse access token: %w", err)
+		return nil, "", "", err
 	}
-	var jti string
-	if claims, ok := token.Claims.(jwt.MapClaims); ok {
-		if val, ok := claims["jti"].(string); ok {
-			jti = val
-		}
-	}
-	if jti == "" {
-		return nil, "", "", fmt.Errorf("jti not found in access token")
-	}
-	
+	// STORE JTI IN REDIS
 	ttl := 15 * time.Minute
 	key := "user-jtis:" + jti
 	value := "valid"
@@ -182,20 +172,21 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	}
 
 	// CHECK SESSION EXISTS or NOT
-	verifyDuplicateSession := `SELECT EXISTS (SELECT 1 FROM sessions WHERE user_id=$1 AND useragent=$2 AND ipaddress=$3 AND isactive=true);`
+	verifyDuplicateSession := `SELECT EXISTS (SELECT 1 FROM sessions WHERE user_id=$1 AND useragent=$2);`
 	var exists bool
-	err = m.DB.QueryRow(verifyDuplicateSession, resp.Id, userAgent, ipAddress).Scan(&exists)
+	err = m.DB.QueryRow(verifyDuplicateSession, resp.Id, userAgent).Scan(&exists)
 	if err != nil {
 		return nil, "", "", err
 	}
-	if exists{
+	if exists {
 		// UPDATE SESSION
-		invalidatePreviousAccessToken:=`UPDATE sessions SET updated_at = $1, last_active_at = $2 WHERE user_id = $3 AND useragent = $4 AND ipaddress = $5 AND isactive = true;`
-		_, err = m.DB.Exec(invalidatePreviousAccessToken, now, now, resp.Id, userAgent, ipAddress)
+		invalidatePreviousAccessToken := `UPDATE sessions SET updated_at = $1, last_active_at = $2, isactive = true, ipaddress = $3 WHERE user_id = $4 AND useragent = $5;`
+		_, err = m.DB.Exec(invalidatePreviousAccessToken, now, now, ipAddress, resp.Id, userAgent)
 		if err != nil {
 			return nil, "", "", err
 		}
 	}
+
 	if !exists {
 		// --- CREATE SESSION ---
 		createSession := `INSERT INTO sessions (user_id, useragent, ipaddress) VALUES ($1, $2, $3);`
@@ -233,7 +224,7 @@ func GetUserIDFromBearerToken(bearerToken string, secret string) (string, error)
 	if !ok {
 		return "", errors.New("userId not found in token claims")
 	}
-	tokenType:= claims["type"].(string)
+	tokenType := claims["type"].(string)
 	if tokenType != "access" {
 		return "", errors.New("invalid token type")
 	}
@@ -285,22 +276,43 @@ func (m *UserModel) GetUser(accessToken string) (*UserInfo, error) {
 	return &resp, nil
 }
 
-
-func (m *UserModel) Logout(accessToken string, refreshToken string, userAgent string)(*UserInfo, error){
-
+func (m *UserModel) Logout(accessToken string, refreshToken string, userAgent string) (string, error) {
 	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+	checkCurrectRefreshToken := `SELECT EXISTS (SELECT 1 FROM refresh_tokens WHERE user_id=$1 AND hash_token=$2 AND revoked=false AND expires_at > NOW());`
+	var exists bool
+	err = m.DB.QueryRow(checkCurrectRefreshToken, userId, refreshToken).Scan(&exists)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("invalid refresh token")
 	}
 	removeRefreshToken := `UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND hash_token = $2;`
 	_, err = m.DB.Exec(removeRefreshToken, userId, refreshToken)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	query := `UPDATE sessions SET isactive = false WHERE user_id = $1 AND useragent = $2;`
 	_, err = m.DB.Exec(query, userId, userAgent)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return nil, nil
+
+	jti, err := GetJtiFromToken(accessToken)
+	if err != nil {
+		return "", err
+	}
+
+	// Get and update JTI IN REDIS and make the jti invalid so that any further request with this access token will be rejected
+	ttl := 15 * time.Minute
+	key := "user-jtis:" + jti
+	val, err := m.Redis.Get(context.Background(), key).Result()
+	if err != nil || val != "invalid" {
+		value := "invalid"
+		_ = m.Redis.Set(context.Background(), key, value, ttl).Err()
+	}
+	return "Successfully logged out", nil
 }

@@ -16,5 +16,5 @@ func NewModels(db *sql.DB, redisClient *redis.Client) Models {
 	return Models{
 		DB:    db,
 		Users: UserModel{DB: db, Redis: redisClient},
-		}
+	}
 }

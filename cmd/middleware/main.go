@@ -1,20 +1,17 @@
 package middleware
 
 import (
-	"database/sql"
+	"context"
+	"goAuth/internal/database"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // CHECK valid access token, is not expired, is not revoked from redis
 
-var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
-
-func AuthMiddleware(db *sql.DB) gin.HandlerFunc {
+func AuthMiddleware(m *database.UserModel) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accessToken := c.GetHeader("Authorization")
 		if accessToken == "" {
@@ -23,45 +20,17 @@ func AuthMiddleware(db *sql.DB) gin.HandlerFunc {
 		}
 
 		tokenString := strings.TrimPrefix(accessToken, "Bearer ")
-
-		var exists bool
-		err := db.QueryRow(
-			`SELECT EXISTS (SELECT 1 FROM token_blacklist WHERE token=$1 AND expires_at > NOW())`,
-			tokenString,
-		).Scan(&exists)
-
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "DB error"})
-			return
-		}
-
-		if exists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token is revoked"})
-			return
-		}
-
-		token, err := jwt.ParseWithClaims(tokenString, jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
-			return []byte(jwtSecret), nil
-		})
-		if err != nil || !token.Valid {
+		jti, err := database.GetJtiFromToken(tokenString)
+		if err != nil || jti == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
 		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+		key := "user-jtis:" + jti
+		val, err := m.Redis.Get(context.Background(), key).Result()
+		if err == nil && val == "invalid" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token has been revoked"})
 			return
 		}
-
-		userID, ok := claims["userId"].(string)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token payload"})
-			return
-		}
-
-		c.Set("userId", userID)
-
 		c.Next()
 	}
 }

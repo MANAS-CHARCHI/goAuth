@@ -26,11 +26,11 @@ func main() {
 	}
 
 	client := redis.NewClient(&redis.Options{
-        Addr:	  os.Getenv("REDIS_SERVER"),
-        Password: "", // No password set
-        DB:		  0,  // Use default DB
-        Protocol: 2,  // Connection protocol
-    })
+		Addr:     os.Getenv("REDIS_SERVER"),
+		Password: "", // No password set
+		DB:       0,  // Use default DB
+		Protocol: 2,  // Connection protocol
+	})
 	// Always use a context (required by go-redis v9)
 	ctx := context.Background()
 
