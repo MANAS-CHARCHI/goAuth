@@ -10,12 +10,12 @@
 10. make setup for redis: DONE
 11. after access token store jti in redis: DONE
 
-12. logout , remove refrehtoken, set accesstoekn jti iinvalid in redis
+12. logout , remove refrehtoken, set accesstoekn jti iinvalid in redis:  DONE
 13.create middleware
-    i- get accesstoken and check its valid or not
-    ii- check jti is there in redis and is valid not loged out
-    iii- if jti is valid and there, and accesstoekn is good go next
-14. create validate functin which will validate that the token is valid by seeing redis jti taht its valid
-15.refrsh token by updating redis, 
+    i- get accesstoken and check its valid or not :DONE
+    ii- check jti is there in redis and is valid not loged out :DONE
+    iii- if jti is valid and there, and accesstoekn is good go next :DONE
+14. create validate functin which will validate that the token is valid by seeing redis jti taht its valid :DONE
+15.refrsh the token
     from refrehtoken create another accesstoken for the user and 
-    also refresh token for the user
+    also refresh token for the user :DONE

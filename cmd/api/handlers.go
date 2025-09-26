@@ -150,3 +150,28 @@ func (app *application) logout(c *gin.Context) {
 		"user": user,
 	})
 }
+
+func (app *application) refresh(c *gin.Context) {
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing or invalid refresh token",
+		})
+		return
+	}
+	refreshToken := req.RefreshToken
+	ipAddress := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	user, accessToken, newRefreshToken, err := app.models.Users.RefreshTokens(refreshToken, ipAddress, userAgent)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user":          user,
+		"access-token":  accessToken,
+		"refresh-token": newRefreshToken,
+	})
+}

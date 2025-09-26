@@ -16,6 +16,8 @@ func (app *application) routes() http.Handler {
 		v1.GET("/", app.ping)
 		v1.POST("/register", app.register)
 		v1.POST("/login", app.login)
+		v1.POST("/refresh", app.refresh)
+
 		v1.POST("/user/activate/:user_id", app.activateUser)
 
 		auth := v1.Group("/")
@@ -23,7 +25,6 @@ func (app *application) routes() http.Handler {
 		{
 			auth.GET("/user", app.getuser)
 			auth.POST("/logout", app.logout)
-			// auth.POST("/refresh", app.refresh)
 			// auth.GET("/verify", app.verify)
 			// auth.POST("/change-password", app.changePassword)
 			// auth.POST("/forgot-password", app.forgotPassword)

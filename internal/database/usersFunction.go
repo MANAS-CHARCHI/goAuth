@@ -381,3 +381,103 @@ func (m *UserModel) Logout(accessToken string, refreshToken string, userAgent st
 	}
 	return "Successfully logged out", nil
 }
+
+func (m *UserModel) RefreshTokens(refreshToken string, ipAddress string, userAgent string) (*UserResponse, string, string, error) {
+	ctx := context.Background()
+	// PARSE REFRESH TOKEN
+	fmt.Print("here")
+	token, err := jwt.ParseWithClaims(refreshToken, jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return jwtSecret, nil
+	})
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to parse token: %w", err)
+	}
+	if !token.Valid {
+		return nil, "", "", fmt.Errorf("invalid token")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, "", "", errors.New("failed to parse claims")
+	}
+	tokenType, ok := claims["type"].(string)
+	if !ok || tokenType != "refresh" {
+		return nil, "", "", errors.New("invalid token type")
+	}
+	userIdStr, ok := claims["userId"].(string)
+	if !ok {
+		return nil, "", "", errors.New("userId not found in token claims")
+	}
+	deviceKey, ok := claims["device_key"].(string)
+	if !ok {
+		return nil, "", "", errors.New("device_key not found in token claims")
+	}
+	if deviceKey != hashUserAgent(userAgent) {
+		return nil, "", "", errors.New("refresh token does not match the device")
+	}
+	// CHECK IF REFRESH TOKEN IS REVOKED OR EXPIRED
+	checkRefreshToken := `SELECT EXISTS (SELECT 1 FROM refresh_tokens WHERE user_id=$1 AND hash_token=$2 AND revoked=false AND expires_at > NOW());`
+	var exists bool
+	err = m.DB.QueryRow(checkRefreshToken, userIdStr, refreshToken).Scan(&exists)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if !exists {
+		return nil, "", "", fmt.Errorf("invalid or expired refresh token")
+	}
+	// GET USER DETAILS
+	query := `SELECT id, username, email, firstname, lastname, avatar, website, createdAt FROM users WHERE id=$1;`
+	row := m.DB.QueryRow(query, userIdStr)
+
+	var resp UserResponse
+	var avatar sql.NullString
+	var website sql.NullString
+	err = row.Scan(&resp.Id, &resp.Username, &resp.Email, &resp.FirstName, &resp.LastName, &avatar, &website, &resp.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "", "", fmt.Errorf("user not found")
+		}
+		return nil, "", "", err
+	}
+	resp.Avatar = avatar.String
+	resp.Website = website.String
+
+	// GENERATE NEW TOKENS
+	tokens, err := GenerateTokens(resp.Id, userAgent)
+	if err != nil {
+		return nil, "", "", err
+	}
+	newAccessToken := tokens.AccessToken
+	newRefreshToken := tokens.RefreshToken
+
+	expiresAt := time.Unix(tokens.RefreshExp, 0).UTC()
+	now := time.Now().UTC()
+	// STORE NEW REFRESH TOKEN
+	storeRefreshToken := `INSERT INTO refresh_tokens (hash_token, user_id, expires_at, issued_at) VALUES ($1, $2, $3, $4);`
+	_, err = m.DB.Exec(storeRefreshToken, newRefreshToken, resp.Id, expiresAt, now)
+	if err != nil {
+		return nil, "", "", err
+	}
+	// REVOKE OLD REFRESH TOKEN
+	revokeOldRefreshToken := `UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND hash_token = $2;`
+	_, err = m.DB.Exec(revokeOldRefreshToken, resp.Id, refreshToken)
+	if err != nil {
+		return nil, "", "", err
+	}
+	// EXTRACT JTI AND STORE
+	jti, err := GetJtiFromToken(newAccessToken)
+	if err != nil {
+		return nil, "", "", err
+	}
+	// STORE JTI IN REDIS
+	ttl := 15 * time.Minute
+	key := "user-jtis:" + jti
+	value := "valid"
+	err = m.Redis.Set(ctx, key, value, ttl).Err()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to store JTI in Redis: %w", err)
+	}
+	return &resp, newAccessToken, newRefreshToken, nil
+}
