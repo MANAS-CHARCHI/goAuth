@@ -2,6 +2,10 @@
 
 Secure User Authentication backend(only) microservice.
 
+## Procedure
+
+![auth user model](assets/prodedure.png)
+
 ## Tech Stack
 
 <p align="left">
