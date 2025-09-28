@@ -1,4 +1,4 @@
-CREATE TABLE sessions(
+CREATE TABLE IF NOT EXISTS sessions(
     id SERIAL NOT NULL,
     user_id uuid NOT NULL,
     useragent text,

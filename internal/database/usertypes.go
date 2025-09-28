@@ -96,3 +96,21 @@ type UserDB struct {
 	DeletedAt            *string
 	DeletedBy            *int
 }
+
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required"`
+}
+
+type UpdateUserRequest struct {
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Username  string `json:"username"`
+	Avatar    string `json:"avatar"`
+	Website   string `json:"website"`
+	Gender    string `json:"gender"`
+	Dob       string `json:"dob"`
+	PhoneOne  string `json:"phonenumberone"`
+	PhoneTwo  string `json:"phonenumbertwo"`
+	Address   string `json:"address"`
+}

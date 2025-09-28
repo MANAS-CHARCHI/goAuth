@@ -18,17 +18,18 @@ func (app *application) routes() http.Handler {
 		v1.POST("/login", app.login)
 		v1.POST("/refresh", app.refresh)
 
-		v1.POST("/user/activate/:user_id", app.activateUser)
+		v1.POST("/user/activate/:email", app.activateUser)
+		v1.POST("/forgot-password-otp", app.forgotPassword)
+		v1.POST("/change-forgot-password/:email/:otp", app.changeForgotPassword)
+
 
 		auth := v1.Group("/")
 		auth.Use(middleware.AuthMiddleware(&database.UserModel{DB: app.models.DB, Redis: app.redis}))
 		{
 			auth.GET("/user", app.getuser)
 			auth.POST("/logout", app.logout)
-			// auth.GET("/verify", app.verify)
-			// auth.POST("/change-password", app.changePassword)
-			// auth.POST("/forgot-password", app.forgotPassword)
-			// auth.POST("/user/update", app.updateUser)
+			auth.POST("/change-password", app.changePassword)
+			auth.POST("/user/update", app.updateUser)
 
 		}
 

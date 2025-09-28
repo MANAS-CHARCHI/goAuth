@@ -55,7 +55,7 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 	}
 
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
-	at, err := accessToken.SignedString(jwtSecret)
+	at, err := accessToken.SignedString([]byte(jwtSecret))
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 	}
 
 	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
-	rt, err := refreshToken.SignedString(jwtSecret)
+	rt, err := refreshToken.SignedString([]byte(jwtSecret))
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 }
 
 func sendUserOTP(m *UserModel, userID uuid.UUID, email string) (string, error) {
-	otp := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	otp := GenerateUniqueOTP()
 	checkUserWithOtpExists := `SELECT EXISTS (SELECT 1 FROM user_otps WHERE user_id=$1);`
 	var exists bool
 	err := m.DB.QueryRow(checkUserWithOtpExists, userID).Scan(&exists)
@@ -103,9 +103,11 @@ func sendUserOTP(m *UserModel, userID uuid.UUID, email string) (string, error) {
 			return "", err
 		}
 	} else {
-		otpInsertQuery := `INSERT INTO user_otps (user_id, otp, expires_at, created_at) VALUES ($1, $2, $3, $4);`
+		otpInsertQuery := `INSERT INTO user_otps (user_id, email, otp, expires_at, created_at) VALUES ($1, $2, $3, $4, $5);`
 		expiresAt := time.Now().Add(10 * time.Minute).UTC()
-		_, err := m.DB.Exec(otpInsertQuery, userID, otp, expiresAt, time.Now().UTC())
+		fmt.Print(email)
+		_, err := m.DB.Exec(otpInsertQuery, userID, email, otp, expiresAt, time.Now().UTC())
+
 		if err != nil {
 			return "", err
 		}
@@ -128,6 +130,7 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 		RETURNING id, username, email, firstname, lastname, avatar, website, createdAt;`
 
 	row := m.DB.QueryRow(query, user.Username, user.Email, user.Password, user.FirstName, user.LastName, createdAt, RoleId, LastLogin, LastModified, userAgent, ipAddress, false)
+
 	var resp UserResponse
 	var avatar sql.NullString
 	var website sql.NullString
@@ -137,6 +140,7 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 	}
 	resp.Avatar = avatar.String
 	resp.Website = website.String
+
 	go func(userID uuid.UUID, email string) {
 		_, err := sendUserOTP(m, userID, email)
 		if err != nil {
@@ -146,10 +150,10 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 	return &resp, nil
 }
 
-func (m *UserModel) ActivateUser(userID uuid.UUID, otp string) error {
-	verifyOTPQuery := `SELECT expires_at FROM user_otps WHERE user_id=$1 AND otp=$2;`
+func (m *UserModel) ActivateUser(email string, otp string) error {
+	verifyOTPQuery := `SELECT expires_at FROM user_otps WHERE email=$1 AND otp=$2;`
 	var expiresAt time.Time
-	err := m.DB.QueryRow(verifyOTPQuery, userID, otp).Scan(&expiresAt)
+	err := m.DB.QueryRow(verifyOTPQuery, email, otp).Scan(&expiresAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("invalid OTP")
@@ -159,13 +163,13 @@ func (m *UserModel) ActivateUser(userID uuid.UUID, otp string) error {
 	if time.Now().After(expiresAt) {
 		return fmt.Errorf("OTP has expired")
 	}
-	query := `UPDATE users SET useractivate = true, useractivatedat = $1 WHERE id = $2;`
-	_, err = m.DB.Exec(query, time.Now().UTC().Format(time.RFC3339), userID)
+	query := `UPDATE users SET useractivate = true, useractivatedat = $1 WHERE email = $2;`
+	_, err = m.DB.Exec(query, time.Now().UTC().Format(time.RFC3339), email)
 	if err != nil {
 		return err
 	}
-	deleteOTPQuery := `DELETE FROM user_otps WHERE user_id=$1;`
-	_, err = m.DB.Exec(deleteOTPQuery, userID)
+	deleteOTPQuery := `DELETE FROM user_otps WHERE email=$1;`
+	_, err = m.DB.Exec(deleteOTPQuery, email)
 	if err != nil {
 		return err
 	}
@@ -192,6 +196,26 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 		return nil, "", "", err
 	}
 	if !resp.UserActivated {
+		getFailedLoginAttempt := `SELECT failedloginattempts FROM users WHERE id=$1;`
+		var failedLoginAttempts int
+		err = m.DB.QueryRow(getFailedLoginAttempt, resp.Id).Scan(&failedLoginAttempts)
+		if(err != nil) {
+			return nil, "", "", err
+		}
+		if failedLoginAttempts >= 3 {
+			updateUser:= `UPDATE users SET failedloginuseragent=$1, failedloginip=$2, failedloginattempts=$3 WHERE id=$4;`
+			_, err = m.DB.Exec(updateUser, userAgent, ipAddress, 0, resp.Id)
+			if err != nil {
+				return nil, "", "", err
+			}
+			// TODO:- SENT MAIL TO USER THAT SOMEONE IS ATTEMPTING TO LOGIN with this userAgent and ipAddress
+		}else{
+			updateFailedAttempt := `UPDATE users SET failedloginattempts=$1 WHERE id=$2;`
+			_, err = m.DB.Exec(updateFailedAttempt, failedLoginAttempts+1, resp.Id)
+			if err != nil {
+				return nil, "", "", err
+			}
+		}
 		return nil, "", "", fmt.Errorf("user is not activated")
 	}
 
@@ -264,6 +288,157 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 	return &resp, accessToken, refreshToken, nil
 }
 
+func (m *UserModel) ForgotPassword(email string) error {
+	query := `SELECT id FROM users WHERE email=$1;`
+	var userID uuid.UUID
+	err := m.DB.QueryRow(query, email).Scan(&userID)
+	if err != nil {
+		return err
+	}
+	otp:=GenerateUniqueOTP()
+	checkOTPExistBeforeQuery:=`SELECT EXISTS (SELECT 1 FROM forgot_password_tokens WHERE email=$1);`
+	var exists bool
+	err = m.DB.QueryRow(checkOTPExistBeforeQuery, email).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if exists {
+		updateOTPQuery:=`UPDATE forgot_password_tokens SET otp=$1, expires_at=$2, updated_at=$3 WHERE email=$4;`
+		_, err = m.DB.Exec(updateOTPQuery, otp, time.Now().Add(10*time.Minute).UTC(), time.Now().UTC(), email)
+		if err != nil {
+			return err
+		}
+	}else{
+		storeOTPquery:=` INSERT INTO forgot_password_tokens (email, otp, created_at, expires_at) VALUES ($1, $2, $3, $4);`
+		_, err = m.DB.Exec(storeOTPquery, email, otp, time.Now().UTC(), time.Now().Add(10*time.Minute).UTC())
+		if err != nil {
+			return err
+		}
+	}
+	// TODO:- SEND EMAIL TO USER
+
+	return nil
+}
+// func (m * UserModel) VerifyForgotPasswordOtp(email string, otp string) error {
+// 	query := `SELECT otp, expires_at FROM forgot_password_tokens WHERE email=$1;`
+// 	var dbOTP string
+// 	var expiresAt time.Time
+// 	err := m.DB.QueryRow(query, email).Scan(&dbOTP, &expiresAt)
+// 	if err != nil {
+// 		if errors.Is(err, sql.ErrNoRows) {
+// 			return fmt.Errorf("no OTP found for this email")
+// 		}
+// 		return err
+// 	}
+// 	if otp != dbOTP {
+// 		return fmt.Errorf("invalid OTP")
+// 	}
+// 	if time.Now().After(expiresAt) {
+// 		return fmt.Errorf("OTP has expired")
+// 	}
+// 	updateQueryToVerified := `UPDATE forgot_password_tokens SET isverified = true, updated_at = $1 WHERE email = $2;`
+// 	_, err = m.DB.Exec(updateQueryToVerified, time.Now().UTC(), email)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	return nil
+	
+// }
+func (m * UserModel) ChangeForgotPassword(email string, otp string, newPassword string) error {
+	query := `SELECT otp, expires_at FROM forgot_password_tokens WHERE email=$1;`
+	var dbOTP string
+	var expiresAt time.Time
+	err := m.DB.QueryRow(query, email).Scan(&dbOTP, &expiresAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("no OTP found for this email")
+		}
+		return err
+	}
+	if otp != dbOTP {
+		return fmt.Errorf("invalid OTP")
+	}
+	if time.Now().After(expiresAt) {
+		return fmt.Errorf("OTP has expired")
+	}
+
+	previousPasswords:=`SELECT password, lastpassword FROM users WHERE email=$1;`
+	var currentPassword string
+	var lastPassword sql.NullString
+
+	err = m.DB.QueryRow(previousPasswords, email).Scan(&currentPassword, &lastPassword)
+	if err != nil {
+		return err
+	}
+	// Verify old password matches current password from ChangePasswordRequest
+	err = bcrypt.CompareHashAndPassword([]byte(currentPassword), []byte(newPassword))
+	if err == nil {
+		return fmt.Errorf("new password cannot be the same as last 2 passwords")
+	}
+	// Ensure new password is not same as current password
+	err = bcrypt.CompareHashAndPassword([]byte(lastPassword.String), []byte(newPassword))
+	if err == nil {
+		return fmt.Errorf("new password cannot be the same as last 2 passwords")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	query = `UPDATE users SET password=$1, lastpassword=$2 WHERE email=$3;`
+	_, err = m.DB.Exec(query, hashedPassword, currentPassword, email)
+	if err != nil {
+		return err
+	}
+	removeOtpQuery := `DELETE FROM forgot_password_tokens WHERE email=$1;`
+	_, err = m.DB.Exec(removeOtpQuery, email)
+	if err != nil {
+		return err
+	}
+	return nil	
+}
+
+func (m *UserModel) ChangePassword(accessToken string, req *ChangePasswordRequest) (string, error) {
+	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
+	if err != nil {
+		return "", err
+	}
+	query:=`SELECT password, lastpassword FROM users WHERE id=$1;`
+	var currentPassword string
+	var lastPassword sql.NullString
+
+	err = m.DB.QueryRow(query, userId).Scan(&currentPassword, &lastPassword)
+	if err != nil {
+		return "", err
+	}
+	// Verify old password matches current password from ChangePasswordRequest
+	err = bcrypt.CompareHashAndPassword([]byte(currentPassword), []byte(req.OldPassword))
+	if err != nil {
+		return "", fmt.Errorf("wrong old password")
+	}
+	// Ensure new password is not same as current password
+	err = bcrypt.CompareHashAndPassword([]byte(currentPassword), []byte(req.NewPassword))
+	if err == nil {
+		return "", fmt.Errorf("new password cannot be the same as the current password")
+	}
+	// Ensure new password is not same as last password
+	err = bcrypt.CompareHashAndPassword([]byte(lastPassword.String), []byte(req.NewPassword))
+	if err == nil {
+		return "", fmt.Errorf("new password cannot be the same as the last password")
+	}
+	// Hash the new password
+	hashedNewPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash new password: %v", err)
+	}
+	updateQuery := `UPDATE users SET password=$1, lastpassword=$2, passwordchangedat=$3 WHERE id=$4;`
+	_, err = m.DB.Exec(updateQuery, string(hashedNewPassword), currentPassword, time.Now().UTC().Format(time.RFC3339), userId)
+	if err != nil {
+		return "", fmt.Errorf("failed to update password: %v", err)
+	}
+	return "Password changed successfully", nil
+}
 func GetUserIDFromBearerToken(bearerToken string, secret string) (string, error) {
 	if !strings.HasPrefix(bearerToken, "Bearer ") {
 		return "", fmt.Errorf("invalid token format")
@@ -480,4 +655,32 @@ func (m *UserModel) RefreshTokens(refreshToken string, ipAddress string, userAge
 		return nil, "", "", fmt.Errorf("failed to store JTI in Redis: %w", err)
 	}
 	return &resp, newAccessToken, newRefreshToken, nil
+}
+
+func (m *UserModel) UpdateUser(accessToken string, user *UpdateUserRequest) (*UserResponse, error) {
+	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
+	if err != nil {
+		return nil, err
+	}
+	updateUser := `UPDATE users SET firstname=$1, lastname=$2, username=$3, avatar=$4, website=$5, gender=$6, dob=$7, phonenumberone=$8, phonenumbertwo=$9, address=$10, updatedat=NOW() WHERE id=$11;`
+	_, err = m.DB.Exec(updateUser, user.FirstName, user.LastName, user.Username, user.Avatar, user.Website, user.Gender, user.Dob, user.PhoneOne, user.PhoneTwo, user.Address, userId)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id, username, email, firstname, lastname, avatar, website, createdAt FROM users WHERE id=$1;`
+	row := m.DB.QueryRow(query, userId)
+
+	var resp UserResponse
+	var avatar sql.NullString
+	var website sql.NullString
+	err = row.Scan(&resp.Id, &resp.Username, &resp.Email, &resp.FirstName, &resp.LastName, &avatar, &website, &resp.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, err
+	}
+	resp.Avatar = avatar.String
+	resp.Website = website.String
+	return &resp, nil
 }

@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -47,14 +46,9 @@ func (app *application) register(c *gin.Context) {
 }
 
 func (app *application) activateUser(c *gin.Context) {
-	userIDStr := c.Param("user_id")
-	if userIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required in URL"})
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id format"})
+	email := c.Param("email")
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required in URL"})
 		return
 	}
 
@@ -66,7 +60,7 @@ func (app *application) activateUser(c *gin.Context) {
 		return
 	}
 
-	err = app.models.Users.ActivateUser(userID, req.OTP)
+	err := app.models.Users.ActivateUser(email, req.OTP)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -115,6 +109,115 @@ func (app *application) getuser(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"user": user,
+	})
+}
+
+func (app *application) changePassword(c *gin.Context) {
+	accessToken := c.GetHeader("Authorization")
+	if accessToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "No Authorization header provided",
+		})
+		return
+	}
+	var req database.ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	user, err := app.models.Users.ChangePassword(accessToken, &req)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user": user,
+	})
+
+}
+type ForgotPasswordRequest struct {
+    Email string `json:"email" binding:"required,email"`
+}
+
+func (app *application) forgotPassword(c *gin.Context) {
+	var req ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	err := app.models.Users.ForgotPassword(req.Email)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "OTP sent",
+	})
+}
+// func (app *application) verifyForgotPasswordOtp(c *gin.Context) {
+// 	email := c.Param("email")
+// 	if email == "" {
+// 		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required in URL"})
+// 		return
+// 	}
+// 	var otp string
+// 	if err := c.ShouldBindJSON(&otp); err != nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"error": err.Error(),
+// 		})
+// 		return
+// 	}
+// 	err := app.models.Users.VerifyForgotPasswordOtp(email,otp)
+// 	if err != nil {
+// 		c.JSON(http.StatusUnauthorized, gin.H{
+// 			"error": err.Error(),
+// 		})
+// 		return
+// 	}
+// 	c.JSON(http.StatusOK, gin.H{
+// 		"message": "OTP verified",
+// 	})
+// }
+type ChangePasswordRequest struct {
+    NewPassword string `json:"new_password" binding:"required"`
+}
+
+func (app *application) changeForgotPassword(c *gin.Context) {
+	email := c.Param("email")
+	otp := c.Param("otp")
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required in URL"})
+		return
+	}
+	if otp == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "otp is required in URL"})
+		return
+	}
+	var req ChangePasswordRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	err := app.models.Users.ChangeForgotPassword(email, otp, req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Password changed",
 	})
 }
 
@@ -173,5 +276,33 @@ func (app *application) refresh(c *gin.Context) {
 		"user":          user,
 		"access-token":  accessToken,
 		"refresh-token": newRefreshToken,
+	})
+}
+
+
+func (app *application) updateUser(c *gin.Context) {
+	accessToken := c.GetHeader("Authorization")
+	if accessToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "No Authorization header provided",
+		})
+		return
+	}
+	var req database.UpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	user, err := app.models.Users.UpdateUser(accessToken, &req)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user": user,
 	})
 }

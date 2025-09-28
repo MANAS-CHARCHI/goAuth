@@ -3,9 +3,15 @@ package database
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+func GenerateUniqueOTP() string {
+	otp :=fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	return otp
+}
 
 func GetJtiFromToken(tokenString string) (string, error) {
 	tokenString = strings.TrimSpace(strings.TrimPrefix(tokenString, "Bearer "))
@@ -30,3 +36,4 @@ func GetJtiFromToken(tokenString string) (string, error) {
 
 	return jti, nil
 }
+
