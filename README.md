@@ -2,18 +2,13 @@
 
 Secure User Authentication backend(only) microservice.
 
-## Documentation
-
-#### Schema-
-
-![auth user model](assets/user_model.png)
-![auth user model](assets/other_models.png)## Tech Stack
+## Tech Stack
 
 <p align="left">
-  <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/go/go-original.svg" alt="Go" width="50" height="50" />
-  <img src="https://raw.githubusercontent.com/gin-gonic/logo/master/color.png" alt="Gin" width="50" height="50" />
-  <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/redis/redis-original.svg" alt="Redis" width="50" height="50" />
-  <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" width="50" height="50" />
+    <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/go/go-original.svg" alt="Go" width="50" height="50" />
+    <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/redis/redis-original.svg" alt="Redis" width="50" height="50" />
+    <img src="https://raw.githubusercontent.com/gin-gonic/logo/master/color.png" alt="Gin" width="50" height="50" />
+    <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" width="50" height="50" />
 </p>
 
 ## Key Capabilities
@@ -80,6 +75,13 @@ If not run try this and try air again
     echo 'export PATH=$HOME/go/bin:$PATH' >> ~/.zshrc
     source ~/.zshrc
 ```
+
+## Documentation
+
+#### Schema-
+
+![auth user model](assets/user_model.png)
+![auth user model](assets/other_models.png)
 
 ## API Reference
 
