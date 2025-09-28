@@ -662,7 +662,7 @@ func (m *UserModel) UpdateUser(accessToken string, user *UpdateUserRequest) (*Us
 	if err != nil {
 		return nil, err
 	}
-	updateUser := `UPDATE users SET firstname=$1, lastname=$2, username=$3, avatar=$4, website=$5, gender=$6, dob=$7, phonenumberone=$8, phonenumbertwo=$9, address=$10, updatedat=NOW() WHERE id=$11;`
+	updateUser := `UPDATE users SET firstname=$1, lastname=$2, username=$3, avatar=$4, website=$5, gender=$6, dob=$7, phonenumberone=$8, phonenumbertwo=$9, address=$10, lastmodified=NOW() WHERE id=$11;`
 	_, err = m.DB.Exec(updateUser, user.FirstName, user.LastName, user.Username, user.Avatar, user.Website, user.Gender, user.Dob, user.PhoneOne, user.PhoneTwo, user.Address, userId)
 	if err != nil {
 		return nil, err
