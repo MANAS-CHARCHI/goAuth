@@ -13,7 +13,6 @@ func (app *application) ping(c *gin.Context) {
 		"message": "hi manas",
 	})
 }
-
 func (app *application) register(c *gin.Context) {
 	var req database.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -44,7 +43,6 @@ func (app *application) register(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, user)
 }
-
 func (app *application) activateUser(c *gin.Context) {
 	email := c.Param("email")
 	if email == "" {
@@ -91,7 +89,6 @@ func (app *application) login(c *gin.Context) {
 		"refresh-token": refreshToken,
 	})
 }
-
 func (app *application) getuser(c *gin.Context) {
 	accessToken := c.GetHeader("Authorization")
 	if accessToken == "" {
@@ -111,7 +108,6 @@ func (app *application) getuser(c *gin.Context) {
 		"user": user,
 	})
 }
-
 func (app *application) changePassword(c *gin.Context) {
 	accessToken := c.GetHeader("Authorization")
 	if accessToken == "" {
@@ -142,7 +138,6 @@ func (app *application) changePassword(c *gin.Context) {
 type ForgotPasswordRequest struct {
     Email string `json:"email" binding:"required,email"`
 }
-
 func (app *application) forgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -162,34 +157,28 @@ func (app *application) forgotPassword(c *gin.Context) {
 		"message": "OTP sent",
 	})
 }
-// func (app *application) verifyForgotPasswordOtp(c *gin.Context) {
-// 	email := c.Param("email")
-// 	if email == "" {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required in URL"})
-// 		return
-// 	}
-// 	var otp string
-// 	if err := c.ShouldBindJSON(&otp); err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{
-// 			"error": err.Error(),
-// 		})
-// 		return
-// 	}
-// 	err := app.models.Users.VerifyForgotPasswordOtp(email,otp)
-// 	if err != nil {
-// 		c.JSON(http.StatusUnauthorized, gin.H{
-// 			"error": err.Error(),
-// 		})
-// 		return
-// 	}
-// 	c.JSON(http.StatusOK, gin.H{
-// 		"message": "OTP verified",
-// 	})
-// }
+func (app *application) getAllSessions(c *gin.Context) {
+	accessToken := c.GetHeader("Authorization")
+	if accessToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "No Authorization header provided",
+		})
+		return
+	}
+	sessions, err := app.models.Users.GetAllSessions(accessToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"sessions": sessions,
+	})
+}
 type ChangePasswordRequest struct {
     NewPassword string `json:"new_password" binding:"required"`
 }
-
 func (app *application) changeForgotPassword(c *gin.Context) {
 	email := c.Param("email")
 	otp := c.Param("otp")
@@ -220,11 +209,9 @@ func (app *application) changeForgotPassword(c *gin.Context) {
 		"message": "Password changed",
 	})
 }
-
 type RefreshRequest struct {
 	RefreshToken string `json:"refresh" binding:"required"`
 }
-
 func (app *application) logout(c *gin.Context) {
 	accessToken := c.GetHeader("Authorization")
 	if accessToken == "" {
@@ -253,7 +240,6 @@ func (app *application) logout(c *gin.Context) {
 		"user": user,
 	})
 }
-
 func (app *application) refresh(c *gin.Context) {
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -278,8 +264,6 @@ func (app *application) refresh(c *gin.Context) {
 		"refresh-token": newRefreshToken,
 	})
 }
-
-
 func (app *application) updateUser(c *gin.Context) {
 	accessToken := c.GetHeader("Authorization")
 	if accessToken == "" {

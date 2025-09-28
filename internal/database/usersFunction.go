@@ -22,9 +22,7 @@ type UserModel struct {
 	DB    *sql.DB
 	Redis *redis.Client
 }
-
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
-
 type TokenDetails struct {
 	AccessToken  string
 	RefreshToken string
@@ -32,7 +30,6 @@ type TokenDetails struct {
 	AccessExp    int64
 	RefreshExp   int64
 }
-
 // hashUserAgent hashes the User-Agent string
 func hashUserAgent(userAgent string) string {
 	h := sha256.New()
@@ -86,7 +83,6 @@ func GenerateTokens(userID uuid.UUID, userAgent string) (*TokenDetails, error) {
 
 	return td, nil
 }
-
 func sendUserOTP(m *UserModel, userID uuid.UUID, email string) (string, error) {
 	otp := GenerateUniqueOTP()
 	checkUserWithOtpExists := `SELECT EXISTS (SELECT 1 FROM user_otps WHERE user_id=$1);`
@@ -105,7 +101,6 @@ func sendUserOTP(m *UserModel, userID uuid.UUID, email string) (string, error) {
 	} else {
 		otpInsertQuery := `INSERT INTO user_otps (user_id, email, otp, expires_at, created_at) VALUES ($1, $2, $3, $4, $5);`
 		expiresAt := time.Now().Add(10 * time.Minute).UTC()
-		fmt.Print(email)
 		_, err := m.DB.Exec(otpInsertQuery, userID, email, otp, expiresAt, time.Now().UTC())
 
 		if err != nil {
@@ -113,12 +108,10 @@ func sendUserOTP(m *UserModel, userID uuid.UUID, email string) (string, error) {
 		}
 	}
 
-	// Send OTP to user's email
-	fmt.Printf("OTP for user %s: %s\n", email, otp)
+	// TODO : Send OTP to user's email
 
 	return otp, nil
 }
-
 func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgent string) (*UserResponse, error) {
 
 	createdAt := time.Now().UTC().Format(time.RFC3339)
@@ -149,7 +142,6 @@ func (m *UserModel) CreateUser(user *RegisterRequest, ipAddress string, userAgen
 	}(resp.Id, resp.Email)
 	return &resp, nil
 }
-
 func (m *UserModel) ActivateUser(email string, otp string) error {
 	verifyOTPQuery := `SELECT expires_at FROM user_otps WHERE email=$1 AND otp=$2;`
 	var expiresAt time.Time
@@ -175,7 +167,6 @@ func (m *UserModel) ActivateUser(email string, otp string) error {
 	}
 	return nil
 }
-
 func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent string) (*UserResponse, string, string, error) {
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -287,7 +278,6 @@ func (m *UserModel) LoginUser(user *LoginRequest, ipAddress string, userAgent st
 
 	return &resp, accessToken, refreshToken, nil
 }
-
 func (m *UserModel) ForgotPassword(email string) error {
 	query := `SELECT id FROM users WHERE email=$1;`
 	var userID uuid.UUID
@@ -319,31 +309,6 @@ func (m *UserModel) ForgotPassword(email string) error {
 
 	return nil
 }
-// func (m * UserModel) VerifyForgotPasswordOtp(email string, otp string) error {
-// 	query := `SELECT otp, expires_at FROM forgot_password_tokens WHERE email=$1;`
-// 	var dbOTP string
-// 	var expiresAt time.Time
-// 	err := m.DB.QueryRow(query, email).Scan(&dbOTP, &expiresAt)
-// 	if err != nil {
-// 		if errors.Is(err, sql.ErrNoRows) {
-// 			return fmt.Errorf("no OTP found for this email")
-// 		}
-// 		return err
-// 	}
-// 	if otp != dbOTP {
-// 		return fmt.Errorf("invalid OTP")
-// 	}
-// 	if time.Now().After(expiresAt) {
-// 		return fmt.Errorf("OTP has expired")
-// 	}
-// 	updateQueryToVerified := `UPDATE forgot_password_tokens SET isverified = true, updated_at = $1 WHERE email = $2;`
-// 	_, err = m.DB.Exec(updateQueryToVerified, time.Now().UTC(), email)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	return nil
-	
-// }
 func (m * UserModel) ChangeForgotPassword(email string, otp string, newPassword string) error {
 	query := `SELECT otp, expires_at FROM forgot_password_tokens WHERE email=$1;`
 	var dbOTP string
@@ -398,7 +363,6 @@ func (m * UserModel) ChangeForgotPassword(email string, otp string, newPassword 
 	}
 	return nil	
 }
-
 func (m *UserModel) ChangePassword(accessToken string, req *ChangePasswordRequest) (string, error) {
 	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
 	if err != nil {
@@ -470,7 +434,6 @@ func GetUserIDFromBearerToken(bearerToken string, secret string) (string, error)
 	}
 	return userID, nil
 }
-
 func (m *UserModel) GetUser(accessToken string) (*UserInfo, error) {
 	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
 	if err != nil {
@@ -515,7 +478,6 @@ func (m *UserModel) GetUser(accessToken string) (*UserInfo, error) {
 
 	return &resp, nil
 }
-
 func (m *UserModel) Logout(accessToken string, refreshToken string, userAgent string) (string, error) {
 	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
 	if err != nil {
@@ -556,11 +518,9 @@ func (m *UserModel) Logout(accessToken string, refreshToken string, userAgent st
 	}
 	return "Successfully logged out", nil
 }
-
 func (m *UserModel) RefreshTokens(refreshToken string, ipAddress string, userAgent string) (*UserResponse, string, string, error) {
 	ctx := context.Background()
 	// PARSE REFRESH TOKEN
-	fmt.Print("here")
 	token, err := jwt.ParseWithClaims(refreshToken, jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -656,7 +616,6 @@ func (m *UserModel) RefreshTokens(refreshToken string, ipAddress string, userAge
 	}
 	return &resp, newAccessToken, newRefreshToken, nil
 }
-
 func (m *UserModel) UpdateUser(accessToken string, user *UpdateUserRequest) (*UserResponse, error) {
 	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
 	if err != nil {
@@ -683,4 +642,26 @@ func (m *UserModel) UpdateUser(accessToken string, user *UpdateUserRequest) (*Us
 	resp.Avatar = avatar.String
 	resp.Website = website.String
 	return &resp, nil
+}
+func (m *UserModel) GetAllSessions(accessToken string) ([]SessionResponse, error) {
+	userId, err := GetUserIDFromBearerToken(accessToken, string(jwtSecret))
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT useragent, ipaddress, created_at, updated_at, last_active_at, isactive FROM sessions WHERE user_id=$1;`
+	rows, err := m.DB.Query(query, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []SessionResponse
+	for rows.Next() {
+		var session SessionResponse
+		err := rows.Scan(&session.UserAgent, &session.IpAddress, &session.CreatedAt, &session.UpdatedAt, &session.LastActiveAt, &session.IsActive)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, nil
 }

@@ -11,12 +11,10 @@ type RegisterRequest struct {
 	FirstName string `json:"firstname"`
 	LastName  string `json:"lastname"`
 }
-
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
-
 type UserResponse struct {
 	Id            uuid.UUID `json:"id"`
 	Username      string    `json:"username"`
@@ -28,7 +26,6 @@ type UserResponse struct {
 	CreatedAt     string    `json:"createdAt"`
 	UserActivated bool      `json:"userActivated"`
 }
-
 type UserInfo struct {
 	Username        string `json:"username"`
 	Email           string `json:"email"`
@@ -47,7 +44,6 @@ type UserInfo struct {
 	LastModified    string `json:"lastModified"`
 	UserActivatedAt string `json:"userActivatedAt"`
 }
-
 type UpdateUser struct {
 	Username  string `json:"username"`
 	FirstName string `json:"firstname"`
@@ -60,7 +56,6 @@ type UpdateUser struct {
 	PhoneTwo  string `json:"phoneNumberTwo"`
 	Address   string `json:"address"`
 }
-
 type UserDB struct {
 	Id                   uuid.UUID
 	Username             string
@@ -96,12 +91,10 @@ type UserDB struct {
 	DeletedAt            *string
 	DeletedBy            *int
 }
-
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password" binding:"required"`
 	NewPassword string `json:"new_password" binding:"required"`
 }
-
 type UpdateUserRequest struct {
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
@@ -113,4 +106,12 @@ type UpdateUserRequest struct {
 	PhoneOne  string `json:"phonenumberone"`
 	PhoneTwo  string `json:"phonenumbertwo"`
 	Address   string `json:"address"`
+}
+type SessionResponse struct{
+	UserAgent string `json:"useragent"`
+	IpAddress string `json:"ipaddress"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	LastActiveAt string `json:"last_active_at"`
+	IsActive bool `json:"isactive"`
 }

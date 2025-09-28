@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS forgot_password_tokens (
     id SERIAL NOT NULL,
     email VARCHAR(100) NOT NULL UNIQUE,
-    otp VARCHAR(100) NOT NULL,
+    otp VARCHAR(6) NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

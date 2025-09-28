@@ -12,7 +12,6 @@ func GenerateUniqueOTP() string {
 	otp :=fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
 	return otp
 }
-
 func GetJtiFromToken(tokenString string) (string, error) {
 	tokenString = strings.TrimSpace(strings.TrimPrefix(tokenString, "Bearer "))
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
