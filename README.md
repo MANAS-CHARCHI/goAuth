@@ -2,10 +2,6 @@
 
 Secure User Authentication backend(only) microservice.
 
-## Procedure
-
-![auth user model](assets/prodedure.png)
-
 ## Tech Stack
 
 <p align="left">
@@ -14,6 +10,10 @@ Secure User Authentication backend(only) microservice.
     <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" width="50" height="50" style="margin-right: 10px;" />
     <img src="https://raw.githubusercontent.com/gin-gonic/logo/master/color.svg" alt="Gin" width="50" height="50" />
 </p>
+
+## Procedure
+
+![auth user model](assets/prodedure.png)
 
 ## Key Capabilities
 
