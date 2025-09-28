@@ -1,6 +1,6 @@
 # goAuth
 
-Secure User Authentication backend(only) microservice.
+### Secure User Authentication backend microservice.
 
 ## Tech Stack
 
